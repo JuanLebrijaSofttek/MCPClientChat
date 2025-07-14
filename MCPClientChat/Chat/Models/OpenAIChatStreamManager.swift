@@ -1,0 +1,381 @@
+//
+//  OpenAIChatStreamManager.swift
+//  MCPClientChat
+//
+//  Created by Claude Code on 7/14/25.
+//
+
+import Foundation
+import MCPSwiftWrapper
+import SwiftUI
+
+@MainActor
+@Observable
+/// Handle a chat conversation with streaming for OpenAI.
+final class OpenAIChatStreamManager: ChatManager {
+    let OPENAI_CHAT_MODEL_NAME = "Innovation-gpt4o"
+
+    // MARK: Lifecycle
+    
+    init(service: OpenAIService) {
+        print("✅ OpenAI Streaming Service Start")
+        self.service = service
+    }
+    
+    // MARK: Internal
+    
+    /// Messages sent from the user or received from OpenAI
+    var messages: [ChatMessage] = []
+    
+    /// Error message if something goes wrong
+    var errorMessage = ""
+    
+    /// Loading state indicator
+    var isLoading = false
+    
+    /// Returns true if OpenAI is still processing a response
+    var isProcessing: Bool {
+        isLoading
+    }
+    
+    func updateClient(_ client: MCPClient) {
+        mcpClient = client
+        // Invalidate cache when client changes
+        invalidateToolsCache()
+    }
+    
+    /// Send a new message to OpenAI and get the streaming response
+    func send(message: ChatMessage) {
+        print("✅ Send Streaming Message")
+        messageStartTime = Date()
+        print("⏰ Streaming message processing started at: \(messageStartTime!)")
+        messages.append(message)
+        processUserMessage(prompt: message.text)
+    }
+    
+    /// Cancel the current processing task
+    func stop() {
+        task?.cancel()
+        task = nil
+        isLoading = false
+    }
+    
+    /// Clear the conversation
+    func clearConversation() {
+        messages.removeAll()
+        openAIMessages.removeAll()
+        errorMessage = ""
+        isLoading = false
+        task?.cancel()
+        task = nil
+    }
+    
+    /// Invalidate tools cache (useful when client changes)
+    func invalidateToolsCache() {
+        print("🟡 Invalidating tools cache")
+        cachedTools = nil
+        toolsCacheTimestamp = nil
+    }
+    
+    // MARK: Private
+    
+    /// Service to communicate with OpenAI API
+    private let service: OpenAIService
+    
+    /// Message history for OpenAI's context
+    private var openAIMessages: [OpenAIMessage] = []
+    
+    /// Current task handling OpenAI API request
+    private var task: Task<Void, Never>? = nil
+    
+    private var mcpClient: MCPClient?
+    
+    /// Cached tools to avoid fetching on every message
+    private var cachedTools: [OpenAITool]?
+    
+    /// Last time tools were fetched
+    private var toolsCacheTimestamp: Date?
+    
+    /// Cache expiry time (5 minutes)
+    private let toolsCacheExpiryInterval: TimeInterval = 300
+    
+    /// Track message processing start time for performance metrics
+    private var messageStartTime: Date?
+    
+    /// Track streaming response timing
+    private var firstTokenTime: Date?
+    
+    private func processUserMessage(prompt: String) {
+        print("🟡 processUserMessage (streaming)")
+        
+        // Add a placeholder for OpenAI's response
+        let assistantMessage = ChatMessage(text: "", role: .assistant, isWaitingForFirstText: true)
+        messages.append(assistantMessage)
+        
+        // Add user message to history
+        openAIMessages.append(OpenAIMessage(
+            role: .user,
+            content: .text(prompt)))
+        
+        task = Task {
+            do {
+                isLoading = true
+                
+                print("🟡 get client")
+                guard let mcpClient else {
+                    throw NSError(domain: "OpenAIChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "mcpClient is nil"])
+                }
+                print("🟡 get tools")
+                // Get available tools from MCP (with caching)
+                var tools = try await getCachedTools()
+                tools = tools.filter { $0.function.name != "create_pull_request_review" }
+
+                // Start streaming conversation
+                try await startStreamingConversation(tools: tools)
+                
+                // Log completion time
+                if let startTime = messageStartTime {
+                    let duration = Date().timeIntervalSince(startTime)
+                    print("⚡ Streaming message processing completed in: \(String(format: "%.2f", duration))s")
+                }
+                
+                isLoading = false
+            } catch {
+                print("❌- \(error)")
+                errorMessage = "\(error)"
+                
+                // Update UI to show error
+                if var last = messages.popLast() {
+                    last.isWaitingForFirstText = false
+                    last.text = "Sorry, there was an error: \(error.localizedDescription)"
+                    messages.append(last)
+                    print("❌- \(error.localizedDescription)")
+                }
+                
+                // Log error completion time
+                if let startTime = messageStartTime {
+                    let duration = Date().timeIntervalSince(startTime)
+                    print("⚡ Streaming message processing failed after: \(String(format: "%.2f", duration))s")
+                }
+                
+                isLoading = false
+            }
+        }
+    }
+    
+    private func startStreamingConversation(tools: [OpenAITool]) async throws {
+        print("🟡 in startStreamingConversation")
+        
+        guard let mcpClient else {
+            throw NSError(domain: "OpenAIChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "mcpClient is nil"])
+        }
+        
+        let parameters = OpenAIParameters(
+            messages: openAIMessages,
+            model: .custom(OPENAI_CHAT_MODEL_NAME),
+            toolChoice: .auto,
+            tools: tools)
+        
+        print("🟡 Starting streaming request")
+        
+        // Start streaming
+        let stream = try await service.startStreamedChat(parameters: parameters)
+        
+        var currentContent = ""
+        var toolCalls: [OpenAIToolCall] = []
+        var currentToolCallIndex = 0
+        var toolCallsAccumulator: [Int: StreamingToolCall] = [:]
+        
+        // Track first token timing
+        firstTokenTime = nil
+        
+        for try await chunk in stream {
+            print("🟡 Received streaming chunk")
+            
+            // Record first token time
+            if firstTokenTime == nil {
+                firstTokenTime = Date()
+                if let startTime = messageStartTime {
+                    let timeToFirstToken = firstTokenTime!.timeIntervalSince(startTime)
+                    print("🚀 First token received in: \(String(format: "%.2f", timeToFirstToken))s")
+                }
+            }
+            
+            guard let choice = chunk.choices?.first else { continue }
+            
+            // Handle streaming content
+            if let content = choice.delta?.content {
+                currentContent += content
+                
+                // Update UI in real-time
+                if var last = messages.popLast() {
+                    last.isWaitingForFirstText = false
+                    last.text = currentContent
+                    messages.append(last)
+                }
+            }
+            
+            // Handle tool calls
+            if let deltaToolCalls = choice.delta?.toolCalls {
+                for deltaToolCall in deltaToolCalls {
+                    let index = deltaToolCall.index ?? currentToolCallIndex
+                    
+                    // Initialize or update tool call accumulator
+                    if var existingToolCall = toolCallsAccumulator[index] {
+                        existingToolCall.function.arguments += deltaToolCall.function.arguments
+                        toolCallsAccumulator[index] = existingToolCall
+                    } else {
+                        toolCallsAccumulator[index] = StreamingToolCall(
+                            id: deltaToolCall.id ?? "",
+                            function: StreamingFunctionCall(
+                                name: deltaToolCall.function.name ?? "",
+                                arguments: deltaToolCall.function.arguments
+                            )
+                        )
+                    }
+                    
+                    currentToolCallIndex = max(currentToolCallIndex, index + 1)
+                }
+            }
+            
+            // Check for completion
+            if let finishReason = choice.finishReason {
+                print("🟡 Stream finished with reason: \(finishReason)")
+                
+                // Handle regular text completion
+                if "\(finishReason)" == "stop" {
+                    // Add assistant response to history
+                    openAIMessages.append(OpenAIMessage(
+                        role: .assistant,
+                        content: .text(currentContent)))
+                    break
+                }
+                
+                // Handle tool calls completion
+                if "\(finishReason)" == "tool_calls" {
+                    // Convert accumulated tool calls to proper format
+                    toolCalls = toolCallsAccumulator.values.map { streamingToolCall in
+                        OpenAIToolCall(
+                            id: streamingToolCall.id,
+                            function: SwiftOpenAI.FunctionCall(
+                                arguments: streamingToolCall.function.arguments,
+                                name: streamingToolCall.function.name
+                            )
+                        )
+                    }
+                    
+                    // Update UI to show tool use
+                    if var last = messages.popLast() {
+                        last.isWaitingForFirstText = false
+                        last.text = currentContent + "\n🔧 Using tools..."
+                        messages.append(last)
+                    }
+                    
+                    // Process tool calls
+                    try await processToolCalls(toolCalls, tools: tools)
+                    break
+                }
+            }
+        }
+        
+        print("🟡 Streaming conversation completed")
+    }
+    
+    private func processToolCalls(_ toolCalls: [OpenAIToolCall], tools: [OpenAITool]) async throws {
+        guard let mcpClient else {
+            throw NSError(domain: "OpenAIChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "mcpClient is nil"])
+        }
+        
+        print("🟡 Processing \(toolCalls.count) tool calls")
+        
+        // Add the assistant message with tool calls to history
+        openAIMessages.append(OpenAIMessage(
+            role: .assistant,
+            content: .text(""),
+            toolCalls: toolCalls))
+        
+        // Process each tool call
+        for toolCall in toolCalls {
+            let function = toolCall.function
+            guard
+                let id = toolCall.id,
+                let name = function.name,
+                let argumentsData = function.arguments.data(using: .utf8)
+            else {
+                continue
+            }
+            
+            // Parse arguments from string to dictionary
+            let arguments: [String: Any]
+            do {
+                guard let parsedArgs = try JSONSerialization.jsonObject(with: argumentsData) as? [String: Any] else {
+                    continue
+                }
+                arguments = parsedArgs
+            } catch {
+                print("❌ Error parsing tool arguments: \(error)")
+                continue
+            }
+            
+            print("🔧 Calling tool: \(name)")
+            
+            // Call tool via MCP
+            let toolResponse = await mcpClient.openAICallTool(name: name, input: arguments, debug: true)
+            print("🔧 Tool response: \(String(describing: toolResponse))")
+            
+            // Add tool result to conversation
+            if let toolResult = toolResponse {
+                openAIMessages.append(OpenAIMessage(
+                    role: .tool,
+                    content: .text(toolResult),
+                    toolCallID: id))
+            } else {
+                print("❌ Tool execution failed")
+                openAIMessages.append(OpenAIMessage(
+                    role: .tool,
+                    content: .text("Error: Tool execution failed"),
+                    toolCallID: id))
+            }
+        }
+        
+        // Continue conversation with tool results
+        try await startStreamingConversation(tools: tools)
+    }
+    
+    /// Get tools with caching mechanism
+    private func getCachedTools() async throws -> [OpenAITool] {
+        guard let mcpClient else {
+            throw NSError(domain: "OpenAIChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "mcpClient is nil"])
+        }
+        
+        // Check if we have cached tools and they're still valid
+        if let cachedTools = cachedTools,
+           let cacheTimestamp = toolsCacheTimestamp,
+           Date().timeIntervalSince(cacheTimestamp) < toolsCacheExpiryInterval {
+            print("🟡 Using cached tools (\(cachedTools.count) tools)")
+            return cachedTools
+        }
+        
+        print("🟡 Fetching fresh tools from MCP client")
+        let tools = try await mcpClient.openAITools()
+        
+        // Cache the tools
+        cachedTools = tools
+        toolsCacheTimestamp = Date()
+        
+        print("🟡 Cached \(tools.count) tools")
+        return tools
+    }
+}
+
+// MARK: - Streaming Helper Types
+
+private struct StreamingToolCall {
+    let id: String
+    var function: StreamingFunctionCall
+}
+
+private struct StreamingFunctionCall {
+    let name: String
+    var arguments: String
+}
