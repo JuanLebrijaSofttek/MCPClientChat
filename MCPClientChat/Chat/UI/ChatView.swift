@@ -16,6 +16,8 @@ struct ChatView: View {
   // MARK: Internal
 
   let chatManager: ChatManager
+  let settingsManager: MCPSettingsManager
+  @State private var showingSettings = false
 
   var body: some View {
     List {
@@ -24,10 +26,35 @@ struct ChatView: View {
     .listStyle(.plain)
     .scrollContentBackground(.hidden)
     .safeAreaInset(edge: .bottom) {
-      ChatInputView(
-        isStreamingResponse: chatManager.isProcessing,
-        didSubmit: { sendMessage($0) },
-        didTapStop: { chatManager.stop() })
+      VStack(spacing: 0) {
+        // MCP Status Bar
+        HStack {
+          MCPStatusView(settingsManager: settingsManager)
+          Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+        
+        // Chat Input
+        ChatInputView(
+          isStreamingResponse: chatManager.isProcessing,
+          didSubmit: { sendMessage($0) },
+          didTapStop: { chatManager.stop() })
+      }
+    }
+    .toolbar {
+      ToolbarItemGroup(placement: .primaryAction) {
+        MCPMenuView(settingsManager: settingsManager)
+        
+        Button {
+          showingSettings = true
+        } label: {
+          Image(systemName: "gear")
+        }
+      }
+    }
+    .sheet(isPresented: $showingSettings) {
+      MCPSettingsViewWrapper(settingsManager: settingsManager)
     }
   }
 

@@ -21,21 +21,28 @@ struct MCPClientChatApp: App {
         let azureAIService = OpenAIServiceFactory.service(azureConfiguration: azureConfig)
         let azureAIChatStreamManager = OpenAIChatStreamManager(service: azureAIService)
         _chatManager = State(initialValue: azureAIChatStreamManager)
+        
+        // Initialize settings manager and MCP client
+        _settingsManager = State(initialValue: MCPSettingsManager())
+        _mcpClient = State(initialValue: DynamicMCPClient())
     }
     
     // MARK: Internal
     
     var body: some Scene {
         WindowGroup {
-            ChatView(chatManager: chatManager)
+            ChatView(chatManager: chatManager, settingsManager: settingsManager)
                 .toolbar(removing: .title)
                 .containerBackground(
                     .thinMaterial, for: .window)
                 .toolbarBackgroundVisibility(
                     .hidden, for: .windowToolbar)
                 .task {
-                    if let client = try? await githubClient.getClientAsync() {
-                        chatManager.updateClient(client)
+                    await initializeMCPClient()
+                }
+                .onChange(of: settingsManager.activeConfiguration) { _, newConfig in
+                    Task {
+                        await updateMCPClient(with: newConfig)
                     }
                 }
         }
@@ -44,6 +51,65 @@ struct MCPClientChatApp: App {
     
     // MARK: Private
     @State private var chatManager: ChatManager
-    private let githubClient = GIthubMCPClient()
+    @State private var settingsManager: MCPSettingsManager
+    @State private var mcpClient: DynamicMCPClient
+    
+    /// Initialize MCP client with active configuration
+    private func initializeMCPClient() async {
+        print("🔍 Available configurations: \(settingsManager.configurations.count)")
+        print("🔍 Enabled configurations: \(settingsManager.enabledConfigurations.count)")
+        print("🔍 Active configuration: \(settingsManager.activeConfiguration?.name ?? "None")")
+        
+        // Try to use active configuration, or fall back to first enabled one
+        let configToUse = settingsManager.activeConfiguration ?? settingsManager.enabledConfigurations.first
+        
+        if let config = configToUse {
+            print("🚀 Initializing MCP client with: \(config.name)")
+            print("🔍 Config valid: \(config.isValid()), enabled: \(config.isEnabled)")
+            
+            mcpClient.initializeClient(with: config)
+            
+            // Wait for client to be ready and update chat manager
+            if let client = try? await mcpClient.getClientAsync() {
+                chatManager.updateClient(client)
+                print("✅ Chat manager updated with MCP client")
+            } else {
+                print("❌ Failed to get MCP client, will retry...")
+                // If initialization fails, try to fall back to the old hardcoded client
+                await fallbackToLegacyClient()
+            }
+        } else {
+            print("🟡 No enabled MCP configurations found, falling back to legacy client")
+            await fallbackToLegacyClient()
+        }
+    }
+    
+    /// Fallback to the original hardcoded GitHub client if dynamic client fails
+    private func fallbackToLegacyClient() async {
+        print("🔄 Attempting fallback to legacy GitHub client...")
+        let legacyClient = GIthubMCPClient()
+        if let client = try? await legacyClient.getClientAsync() {
+            chatManager.updateClient(client)
+            print("✅ Fallback successful: Chat manager updated with legacy client")
+        } else {
+            print("❌ Legacy client also failed to initialize")
+        }
+    }
+    
+    /// Update MCP client when configuration changes
+    private func updateMCPClient(with config: MCPConfiguration?) async {
+        if let config = config {
+            print("🔄 Updating MCP client to: \(config.name)")
+            mcpClient.initializeClient(with: config)
+            
+            if let client = try? await mcpClient.getClientAsync() {
+                chatManager.updateClient(client)
+                print("✅ Chat manager updated with new MCP client")
+            }
+        } else {
+            print("🔌 Disconnecting MCP client")
+            mcpClient.disconnect()
+        }
+    }
 
 }

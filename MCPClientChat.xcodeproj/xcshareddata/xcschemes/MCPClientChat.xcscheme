@@ -76,13 +76,18 @@
       </BuildableProductRunnable>
       <EnvironmentVariables>
          <EnvironmentVariable
-            key = "github_token"
-            value = "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"
+            key = "OPENAI_API_KEY"
+            value = "8gbxY3csVmOrBljiokPI6V3YEjFasKNbcDvZ6mjJg1QDaIC3zKCoJQQJ99BDACHYHv6XJ3w3AAABACOGRbpE"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "api_key"
-            value = "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"
+            key = "OPENAI_RESOURCE_NAME"
+            value = "innovationopenaiservice"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "OPENAI_API_VERSION"
+            value = "2024-10-01-preview"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
