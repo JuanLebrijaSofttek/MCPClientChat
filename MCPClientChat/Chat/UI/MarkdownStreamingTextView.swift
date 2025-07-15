@@ -15,7 +15,7 @@ struct MarkdownStreamingTextView: View {
     @State private var parsedResults: [ParserResult] = []
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(parsedResults) { result in
                 if result.isCodeBlock {
                     CodeBlockView(parserResult: result)
@@ -25,7 +25,7 @@ struct MarkdownStreamingTextView: View {
                         .textSelection(.enabled)
                 }
             }
-            .border(Color.red)
+//            .border(Color.red)
         }
         .onChange(of: text) { _, newValue in
             updateDisplayedText(to: newValue)
@@ -97,4 +97,5 @@ struct MarkdownStreamingTextView: View {
     - Item 3
     """)
     .padding()
+    .frame(width: 300, height: 300)
 }

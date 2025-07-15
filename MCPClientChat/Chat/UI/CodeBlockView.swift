@@ -21,26 +21,40 @@ struct CodeBlockView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color(NSColor.windowBackgroundColor))
-                
+            
             ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    HStack(alignment: .top) {
-                        Text(parserResult.plainString)
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                            .multilineTextAlignment(.leading)
+                ScrollView([.vertical], showsIndicators: false) {
+                    HStack{
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack(alignment: .top, spacing: 0) {
+                                Text(parserResult.plainString)
+                                    .font(.system(.body, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id("codeContent")
+                            }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                        Spacer(minLength: 0)
+//                            .border(.green)
+                        }
+                        .padding(12)
+                        .padding(.bottom, 16)
+                        .frame(minHeight: 0)
+                        Spacer()
                     }
                 }
+//                .border(.blue)
+                .frame(minHeight: 40, alignment: .leading)
+                .onChange(of: parserResult.plainString) { _, _ in
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        proxy.scrollTo("codeContent", anchor: .bottom)
+                    }
+                }
+                .scrollDisabled(true)
             }
-            .scrollDisabled(true)
-            .padding(.bottom, 10)
+            .cornerRadius(8)
+            .inputRoundedBackground()
         }
-        .cornerRadius(8)
-        .inputRoundedBackground()
     }
     
     var header: some View {
@@ -75,7 +89,7 @@ struct CodeBlockView: View {
                 isCopied = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     isCopied = false
-
+                    
                 }
             } label: {
                 HStack(spacing: 4){
