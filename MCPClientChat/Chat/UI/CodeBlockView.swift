@@ -21,13 +21,23 @@ struct CodeBlockView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color(NSColor.windowBackgroundColor))
-
-            ScrollView(.horizontal, showsIndicators: true) {
-                Text(parserResult.attributedString)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .textSelection(.enabled)
+                
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    HStack(alignment: .top) {
+                        Text(parserResult.plainString)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                        Spacer(minLength: 0)
+                    }
+                }
             }
+            .scrollDisabled(true)
+            .padding(.bottom, 10)
         }
         .cornerRadius(8)
         .inputRoundedBackground()
@@ -59,9 +69,8 @@ struct CodeBlockView: View {
             }
         } else {
             Button {
-                let string = NSAttributedString(parserResult.attributedString).string
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(string, forType: .string)
+                NSPasteboard.general.setString(parserResult.plainString, forType: .string)
                 
                 isCopied = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

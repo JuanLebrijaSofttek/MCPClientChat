@@ -36,9 +36,8 @@ struct SimpleMarkdownParser {
                 let language = lines.first?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let code = lines.count > 1 ? String(lines[1]) : (lines.first.map(String.init) ?? "")
                 
-                let attributedString = AttributedString(code)
                 results.append(ParserResult(
-                    attributedString: attributedString,
+                    plainString: code,
                     isCodeBlock: true,
                     codeBlockLanguage: language?.isEmpty == false ? String(language!) : nil
                 ))
@@ -48,17 +47,15 @@ struct SimpleMarkdownParser {
                 let language = lines.first?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let code = lines.count > 1 ? String(lines[1]) : (lines.first.map(String.init) ?? "")
                 
-                let attributedString = AttributedString(code)
                 results.append(ParserResult(
-                    attributedString: attributedString,
+                    plainString: code,
                     isCodeBlock: true,
                     codeBlockLanguage: language?.isEmpty == false ? String(language!) : nil
                 ))
             } else {
                 // Regular text
-                let attributedString = AttributedString(component)
                 results.append(ParserResult(
-                    attributedString: attributedString,
+                    plainString: component,
                     isCodeBlock: false,
                     codeBlockLanguage: nil
                 ))

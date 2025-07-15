@@ -25,6 +25,7 @@ struct MarkdownStreamingTextView: View {
                         .textSelection(.enabled)
                 }
             }
+            .border(Color.red)
         }
         .onChange(of: text) { _, newValue in
             updateDisplayedText(to: newValue)

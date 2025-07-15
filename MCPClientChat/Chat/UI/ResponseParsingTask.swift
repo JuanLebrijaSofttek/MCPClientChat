@@ -66,11 +66,10 @@ class ResponseParsingTask {
             if lastResult.isCodeBlock || isInsideCodeBlock {
                 // Append to the last code block
                 var updatedResults = cachedResults
-                var combinedAttributedString = lastResult.attributedString
-                combinedAttributedString.append(AttributedString(newChunk))
+                let combinedString = lastResult.plainString + newChunk
                 
                 updatedResults[updatedResults.count - 1] = ParserResult(
-                    attributedString: combinedAttributedString,
+                    plainString: combinedString,
                     isCodeBlock: true,
                     codeBlockLanguage: lastResult.codeBlockLanguage
                 )
@@ -82,11 +81,10 @@ class ResponseParsingTask {
             } else {
                 // Append to the last text block
                 var updatedResults = cachedResults
-                var combinedAttributedString = lastResult.attributedString
-                combinedAttributedString.append(AttributedString(newChunk))
+                let combinedString = lastResult.plainString + newChunk
                 
                 updatedResults[updatedResults.count - 1] = ParserResult(
-                    attributedString: combinedAttributedString,
+                    plainString: combinedString,
                     isCodeBlock: false,
                     codeBlockLanguage: nil
                 )
@@ -99,7 +97,7 @@ class ResponseParsingTask {
         } else {
             // Add new text block
             let newResult = ParserResult(
-                attributedString: AttributedString(newChunk),
+                plainString: newChunk,
                 isCodeBlock: isInsideCodeBlock,
                 codeBlockLanguage: isInsideCodeBlock ? detectLanguage(from: lastText) : nil
             )
