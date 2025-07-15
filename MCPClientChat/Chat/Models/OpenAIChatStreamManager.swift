@@ -125,13 +125,10 @@ final class OpenAIChatStreamManager: ChatManager {
                 guard mcpClient != nil else {
                     throw NSError(domain: "OpenAIChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "mcpClient is nil"])
                 }
-                print("🟡 get tools")
-                // Get available tools from MCP (with caching)
-                var tools = try await getCachedTools()
-                tools = tools.filter { $0.function.name != "create_pull_request_review" }
-
-                // Start streaming conversation
-                try await startStreamingConversation(tools: tools)
+                
+                // Start streaming immediately without waiting for tools
+                // Tools will be fetched async and used if needed
+                try await startStreamingConversation(tools: [])
                 
                 // Log completion time
                 if let startTime = messageStartTime {
@@ -145,10 +142,9 @@ final class OpenAIChatStreamManager: ChatManager {
                 errorMessage = "\(error)"
                 
                 // Update UI to show error
-                if var last = messages.popLast() {
-                    last.isWaitingForFirstText = false
-                    last.text = "Sorry, there was an error: \(error.localizedDescription)"
-                    messages.append(last)
+                if let lastIndex = messages.indices.last {
+                    messages[lastIndex].isWaitingForFirstText = false
+                    messages[lastIndex].text = "Sorry, there was an error: \(error.localizedDescription)"
                     print("❌- \(error.localizedDescription)")
                 }
                 
@@ -170,11 +166,21 @@ final class OpenAIChatStreamManager: ChatManager {
             throw NSError(domain: "OpenAIChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "mcpClient is nil"])
         }
         
+        // Get tools asynchronously if not provided
+        let finalTools: [OpenAITool]
+        if tools.isEmpty {
+            print("🟡 Fetching tools async during streaming")
+            finalTools = (try? await getCachedTools().filter { $0.function.name != "create_pull_request_review" }) ?? []
+            print("🟡 Got \(finalTools.count) tools")
+        } else {
+            finalTools = tools
+        }
+        
         let parameters = OpenAIParameters(
             messages: openAIMessages,
             model: .custom(OPENAI_CHAT_MODEL_NAME),
-            toolChoice: .auto,
-            tools: tools)
+            toolChoice: finalTools.isEmpty ? ToolChoice.none : .auto,
+            tools: finalTools.isEmpty ? nil : finalTools)
         
         print("🟡 Starting streaming request")
         
@@ -207,11 +213,10 @@ final class OpenAIChatStreamManager: ChatManager {
             if let content = choice.delta?.content {
                 currentContent += content
                 
-                // Update UI in real-time
-                if var last = messages.popLast() {
-                    last.isWaitingForFirstText = false
-                    last.text = currentContent
-                    messages.append(last)
+                // Update UI in real-time - modify in place instead of pop/append
+                if let lastIndex = messages.indices.last {
+                    messages[lastIndex].isWaitingForFirstText = false
+                    messages[lastIndex].text = currentContent
                 }
             }
             
@@ -281,7 +286,7 @@ final class OpenAIChatStreamManager: ChatManager {
                     // Process tool calls
                     if !toolCalls.isEmpty {
                         print("🔧 Processing \(toolCalls.count) tool calls")
-                        try await processToolCalls(toolCalls, tools: tools)
+                        try await processToolCalls(toolCalls, tools: finalTools)
                     } else {
                         print("❌ No tool calls to process despite tool_calls finish reason")
                     }
@@ -327,10 +332,9 @@ final class OpenAIChatStreamManager: ChatManager {
             print("🔧 Tool use detected - Name: \(name), ID: \(id)")
             
             // Update UI to show tool use (like non-streaming)
-            if var last = messages.popLast() {
-                last.isWaitingForFirstText = false
-                last.text += "Using tool: \(name)..."
-                messages.append(last)
+            if let lastIndex = messages.indices.last {
+                messages[lastIndex].isWaitingForFirstText = false
+                messages[lastIndex].text += "Using tool: \(name)..."
             }
             
             // Call tool via MCP
@@ -346,14 +350,13 @@ final class OpenAIChatStreamManager: ChatManager {
                     toolCallID: id))
                 
                 // Continue conversation with tool results (like non-streaming)
-                try await startStreamingConversation(tools: tools)
+                try await startStreamingConversation(tools: tools.isEmpty ? [] : tools)
             } else {
                 print("❌ Tool execution failed")
                 // Handle tool failure
-                if var last = messages.popLast() {
-                    last.isWaitingForFirstText = false
-                    last.text = "There was an error using the tool \(name)."
-                    messages.append(last)
+                if let lastIndex = messages.indices.last {
+                    messages[lastIndex].isWaitingForFirstText = false
+                    messages[lastIndex].text = "There was an error using the tool \(name)."
                 }
                 
                 // Add error response as tool message

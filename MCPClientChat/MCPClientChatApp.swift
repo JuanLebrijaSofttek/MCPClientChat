@@ -10,10 +10,7 @@ import SwiftUI
 // is there a repo called FoundMeWoo? is so, who is the owner?
 @main
 struct MCPClientChatApp: App {
-    
-    // MARK: Configuration
-    private let USE_STREAMING = true // Toggle between streaming and non-streaming
-    
+
     // MARK: Lifecycle
     init() {
         let OPENAI_API_KEY = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
@@ -26,13 +23,11 @@ struct MCPClientChatApp: App {
         
         // Choose between streaming and non-streaming based on toggle
         let chatManager: ChatManager
-        if USE_STREAMING {
-            print("🔄 Using streaming chat manager")
-            chatManager = OpenAIChatStreamManager(service: azureAIService)
-        } else {
-            print("🔄 Using non-streaming chat manager")
-            chatManager = OpenAIChatNonStreamManager(service: azureAIService)
-        }
+        print("🔄 Using streaming chat manager")
+        chatManager = OpenAIChatStreamManager(service: azureAIService)
+//        print("🔄 Using non-streaming chat manager")
+//        chatManager = OpenAIChatNonStreamManager(service: azureAIService)
+        
         
         _chatManager = State(initialValue: chatManager)
         
