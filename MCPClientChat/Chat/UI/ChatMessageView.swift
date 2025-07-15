@@ -65,16 +65,24 @@ struct ChatMessageView: View {
         .fixedSize(horizontal: false, vertical: true)
         .foregroundColor(.primary)
     } else {
-      if message.isWaitingForFirstText {
-        ProgressView()
-      } else {
-        Text(LocalizedStringKey(message.text))
-          .fixedSize(horizontal: false, vertical: true)
-          .foregroundColor(.primary)
-          .onAppear{
-              print(message.text)
-          }
+      HStack(alignment: .top, spacing: 8) {
+        if message.isWaitingForFirstText {
+          ProgressView()
+            .scaleEffect(0.8)
+            .frame(height: 20) // Fixed height to match text line height
+        }
+        
+        if !message.text.isEmpty {
+          Text(LocalizedStringKey(message.text))
+            .fixedSize(horizontal: false, vertical: true)
+            .foregroundColor(.primary)
+            .onAppear{
+                print(message.text)
+            }
+        }
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .frame(minHeight: 20) // Ensure consistent minimum height
     }
   }
 

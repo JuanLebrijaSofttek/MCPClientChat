@@ -7,20 +7,34 @@
 
 import MCPSwiftWrapper
 import SwiftUI
-
+// is there a repo called FoundMeWoo? is so, who is the owner?
 @main
 struct MCPClientChatApp: App {
+    
+    // MARK: Configuration
+    private let USE_STREAMING = true // Toggle between streaming and non-streaming
     
     // MARK: Lifecycle
     init() {
         let OPENAI_API_KEY = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
         let OPENAI_RESOURCE_NAME = ProcessInfo.processInfo.environment["OPENAI_RESOURCE_NAME"] ?? ""
         let OPENAI_API_VERSION = ProcessInfo.processInfo.environment["OPENAI_API_VERSION"] ?? ""
-        // Azure with Streaming (Recommended)
+        
+        // Azure configuration
         let azureConfig = AzureOpenAIConfiguration(resourceName: OPENAI_RESOURCE_NAME, openAIAPIKey: .apiKey(OPENAI_API_KEY), apiVersion: OPENAI_API_VERSION)
         let azureAIService = OpenAIServiceFactory.service(azureConfiguration: azureConfig)
-        let azureAIChatStreamManager = OpenAIChatStreamManager(service: azureAIService)
-        _chatManager = State(initialValue: azureAIChatStreamManager)
+        
+        // Choose between streaming and non-streaming based on toggle
+        let chatManager: ChatManager
+        if USE_STREAMING {
+            print("🔄 Using streaming chat manager")
+            chatManager = OpenAIChatStreamManager(service: azureAIService)
+        } else {
+            print("🔄 Using non-streaming chat manager")
+            chatManager = OpenAIChatNonStreamManager(service: azureAIService)
+        }
+        
+        _chatManager = State(initialValue: chatManager)
         
         // Initialize settings manager and MCP client
         _settingsManager = State(initialValue: MCPSettingsManager())
@@ -87,7 +101,8 @@ struct MCPClientChatApp: App {
     /// Fallback to the original hardcoded GitHub client if dynamic client fails
     private func fallbackToLegacyClient() async {
         print("🔄 Attempting fallback to legacy GitHub client...")
-        let legacyClient = GIthubMCPClient()
+        let githubAuthManager = GitHubAuthManager()
+        let legacyClient = GIthubMCPClient(authManager: githubAuthManager)
         if let client = try? await legacyClient.getClientAsync() {
             chatManager.updateClient(client)
             print("✅ Fallback successful: Chat manager updated with legacy client")

@@ -13,21 +13,38 @@ final class GIthubMCPClient {
     
     // MARK: Lifecycle
     
-    init() {
-        print("🏃 Runnning GIthubMCPClient: \(String(describing: token))")
+    init(authManager: GitHubAuthManager) {
+        self.authManager = authManager
+        print("🏃 Runnning GIthubMCPClient")
         initializeClient()
     }
     
     private func initializeClient() {
         initializationTask = Task {
             do {
+                // Get token from auth manager
+                let currentToken = await authManager.accessToken
+                let token: String?
+                if let currentToken = currentToken {
+                    token = currentToken
+                } else {
+                    token = await authManager.loadStoredToken()
+                }
+                
+                guard let token = token else {
+                    print("❌ No GitHub token available. Please authenticate first.")
+                    clientInitialized.continuation.yield(nil)
+                    clientInitialized.continuation.finish()
+                    return
+                }
+                
                 print("🟡 Starting MCP client initialization...")
                 self.client = try await MCPClient(
                     info: .init(name: "GIthubMCPClient", version: "1.0.0"),
                     transport: .stdioProcess(
                         "npx",
                         args: ["-y", "@modelcontextprotocol/server-github"],
-                        env: ["GITHUB_PERSONAL_ACCESS_TOKEN" : "\(token)"],
+                        env: ["GITHUB_PERSONAL_ACCESS_TOKEN" : token],
                         verbose: false),
                     capabilities: .init())
                 clientInitialized.continuation.yield(self.client)
@@ -84,7 +101,7 @@ final class GIthubMCPClient {
     }
     
     // MARK: Private
-    let token = "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"
+    private let authManager: GitHubAuthManager
     private var client: MCPClient?
     private let clientInitialized = AsyncStream.makeStream(of: MCPClient?.self)
     private var initializationTask: Task<Void, Never>?

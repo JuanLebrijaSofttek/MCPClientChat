@@ -235,7 +235,7 @@ final class OpenAIChatNonStreamManager: ChatManager {
                 // Update UI to show tool use
                 if var last = messages.popLast() {
                     last.isWaitingForFirstText = false
-                    last.text += "\n Using tool: \(toolName)..."
+                    last.text += "Using tool: \(toolName)..."
                     messages.append(last)
                 }
                 

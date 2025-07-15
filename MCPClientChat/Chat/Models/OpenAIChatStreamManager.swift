@@ -122,7 +122,7 @@ final class OpenAIChatStreamManager: ChatManager {
                 isLoading = true
                 
                 print("🟡 get client")
-                guard let mcpClient else {
+                guard mcpClient != nil else {
                     throw NSError(domain: "OpenAIChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "mcpClient is nil"])
                 }
                 print("🟡 get tools")
@@ -166,7 +166,7 @@ final class OpenAIChatStreamManager: ChatManager {
     private func startStreamingConversation(tools: [OpenAITool]) async throws {
         print("🟡 in startStreamingConversation")
         
-        guard let mcpClient else {
+        guard mcpClient != nil else {
             throw NSError(domain: "OpenAIChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "mcpClient is nil"])
         }
         
@@ -217,8 +217,10 @@ final class OpenAIChatStreamManager: ChatManager {
             
             // Handle tool calls
             if let deltaToolCalls = choice.delta?.toolCalls {
+                print("🔧 Received tool calls delta: \(deltaToolCalls.count) tool calls")
                 for deltaToolCall in deltaToolCalls {
                     let index = deltaToolCall.index ?? currentToolCallIndex
+                    print("🔧 Processing tool call at index \(index): \(deltaToolCall.function.name ?? "unknown") with args: \(deltaToolCall.function.arguments)")
                     
                     // Initialize or update tool call accumulator
                     if var existingToolCall = toolCallsAccumulator[index] {
@@ -251,8 +253,14 @@ final class OpenAIChatStreamManager: ChatManager {
                     break
                 }
                 
+                print("🔧 Checking finish reason: '\(finishReason)' (type: \(type(of: finishReason)))")
+                
                 // Handle tool calls completion
-                if "\(finishReason)" == "tool_calls" {
+                let finishReasonString = "\(finishReason)"
+                if finishReasonString.contains("tool_calls") {
+                    print("🔧 Stream finished with tool_calls reason. Accumulated tool calls: \(toolCallsAccumulator.count)")
+                    print("🔧 Tool calls accumulator: \(toolCallsAccumulator)")
+                    
                     // Convert accumulated tool calls to proper format
                     toolCalls = toolCallsAccumulator.values.map { streamingToolCall in
                         OpenAIToolCall(
@@ -264,21 +272,26 @@ final class OpenAIChatStreamManager: ChatManager {
                         )
                     }
                     
-                    // Update UI to show tool use
-                    if var last = messages.popLast() {
-                        last.isWaitingForFirstText = false
-                        last.text = currentContent + "\n🔧 Using tools..."
-                        messages.append(last)
-                    }
+                    // Add assistant message with tool calls to history (like non-streaming)
+                    openAIMessages.append(OpenAIMessage(
+                        role: .assistant,
+                        content: .text(currentContent),
+                        toolCalls: toolCalls))
                     
                     // Process tool calls
-                    try await processToolCalls(toolCalls, tools: tools)
+                    if !toolCalls.isEmpty {
+                        print("🔧 Processing \(toolCalls.count) tool calls")
+                        try await processToolCalls(toolCalls, tools: tools)
+                    } else {
+                        print("❌ No tool calls to process despite tool_calls finish reason")
+                    }
                     break
                 }
             }
         }
         
         print("🟡 Streaming conversation completed")
+        print("📝 Complete message content: \(currentContent)")
     }
     
     private func processToolCalls(_ toolCalls: [OpenAIToolCall], tools: [OpenAITool]) async throws {
@@ -288,13 +301,7 @@ final class OpenAIChatStreamManager: ChatManager {
         
         print("🟡 Processing \(toolCalls.count) tool calls")
         
-        // Add the assistant message with tool calls to history
-        openAIMessages.append(OpenAIMessage(
-            role: .assistant,
-            content: .text(""),
-            toolCalls: toolCalls))
-        
-        // Process each tool call
+        // Process each tool call (similar to non-streaming)
         for toolCall in toolCalls {
             let function = toolCall.function
             guard
@@ -317,7 +324,14 @@ final class OpenAIChatStreamManager: ChatManager {
                 continue
             }
             
-            print("🔧 Calling tool: \(name)")
+            print("🔧 Tool use detected - Name: \(name), ID: \(id)")
+            
+            // Update UI to show tool use (like non-streaming)
+            if var last = messages.popLast() {
+                last.isWaitingForFirstText = false
+                last.text += "Using tool: \(name)..."
+                messages.append(last)
+            }
             
             // Call tool via MCP
             let toolResponse = await mcpClient.openAICallTool(name: name, input: arguments, debug: true)
@@ -325,21 +339,30 @@ final class OpenAIChatStreamManager: ChatManager {
             
             // Add tool result to conversation
             if let toolResult = toolResponse {
+                // Add the tool result as a tool message
                 openAIMessages.append(OpenAIMessage(
                     role: .tool,
                     content: .text(toolResult),
                     toolCallID: id))
+                
+                // Continue conversation with tool results (like non-streaming)
+                try await startStreamingConversation(tools: tools)
             } else {
                 print("❌ Tool execution failed")
+                // Handle tool failure
+                if var last = messages.popLast() {
+                    last.isWaitingForFirstText = false
+                    last.text = "There was an error using the tool \(name)."
+                    messages.append(last)
+                }
+                
+                // Add error response as tool message
                 openAIMessages.append(OpenAIMessage(
                     role: .tool,
                     content: .text("Error: Tool execution failed"),
                     toolCallID: id))
             }
         }
-        
-        // Continue conversation with tool results
-        try await startStreamingConversation(tools: tools)
     }
     
     /// Get tools with caching mechanism
