@@ -82,7 +82,7 @@ struct ChatMessageView: View {
                 .frame(width: message.isWaitingForFirstText ? 20 : 0, height: 20) // Fixed dimensions to prevent layout shifts
                 
                 if !message.text.isEmpty {
-                    StreamingTextView(text: message.text)
+                    MarkdownStreamingTextView(text: message.text)
                         .foregroundColor(.primary)
                 } else if !message.isWaitingForFirstText {
                     // Invisible placeholder text to maintain layout consistency
