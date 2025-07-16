@@ -52,9 +52,9 @@ struct CodeBlockView: View {
                 }
                 .scrollDisabled(true)
             }
-            .cornerRadius(8)
-            .inputRoundedBackground()
         }
+        .cornerRadius(8)
+        .inputRoundedBackground()
     }
     
     var header: some View {
